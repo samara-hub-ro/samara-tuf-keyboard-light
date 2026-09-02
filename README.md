@@ -172,6 +172,18 @@ Developed and tested on an ASUS TUF laptop under Omarchy 4. The Aura config
 path is auto-detected rather than hardcoded, so other ASUS models should work,
 but they are untested — reports welcome.
 
+## Versioning
+
+Semantic versioning. The version in `manifest.json` is the source of truth and
+matches the git tag (`v1.0.0`) and the GitHub release for each version.
+`omarchy plugin update` tracks the default branch, so it picks up whatever is
+on `main`; the tags and [CHANGELOG.md](CHANGELOG.md) are there to pin or review
+a specific version.
+
+```bash
+omarchy plugin list | grep keyboard-light        # the version you are running
+```
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
