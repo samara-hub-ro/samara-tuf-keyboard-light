@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "samara-hub-ro.keyboard-light",
-  "name": "Keyboard Light",
+  "name": "Asus TUF/ROG Keyboard Light",
   "version": "1.0.0",
   "author": "samara-hub-ro",
   "license": "MIT",
@@ -13,7 +13,7 @@
     "barWidget": "BarWidget.qml"
   },
   "barWidget": {
-    "displayName": "Keyboard Light",
+    "displayName": "Asus TUF/ROG Keyboard Light",
     "description": "Brightness, effect (static, breathe, rainbow, pulse), colour and speed for the ASUS keyboard backlight.",
     "category": "System",
     "allowMultiple": false,

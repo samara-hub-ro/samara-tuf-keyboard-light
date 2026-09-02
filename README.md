@@ -1,4 +1,4 @@
-# Keyboard Light
+# Asus TUF/ROG Keyboard Light
 
 Control the ASUS keyboard backlight from the Omarchy bar — brightness, effect,
 colour and speed, without leaving the desktop or reaching for `sudo`.
@@ -45,14 +45,14 @@ config.
 ## Install
 
 ```bash
-omarchy plugin add https://github.com/samara-hub-ro/omarchy-keyboard-light.git --enable --yes
+omarchy plugin add https://github.com/samara-hub-ro/samara-tuf-keyboard-light.git --enable --yes
 ```
 
 Plugins run as unsandboxed code inside `omarchy-shell`. Drop `--enable --yes`
 to review the source before enabling it:
 
 ```bash
-omarchy plugin add https://github.com/samara-hub-ro/omarchy-keyboard-light.git
+omarchy plugin add https://github.com/samara-hub-ro/samara-tuf-keyboard-light.git
 # review ~/.config/omarchy/plugins/samara-hub-ro.keyboard-light/
 omarchy plugin enable samara-hub-ro.keyboard-light
 ```

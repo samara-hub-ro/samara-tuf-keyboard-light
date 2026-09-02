@@ -478,7 +478,7 @@ Panel {
             spacing: Style.space(2)
 
             Text {
-              text: "Keyboard light"
+              text: "Asus TUF/ROG Keyboard Light"
               color: root.foreground
               font.family: root.fontFamily
               font.pixelSize: Style.font.title
