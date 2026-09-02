@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "id": "samara-hub-ro.keyboard-light",
+  "name": "Keyboard Light",
+  "version": "1.0.0",
+  "author": "samara-hub-ro",
+  "license": "MIT",
+  "description": "Control the ASUS keyboard backlight from the Omarchy bar: brightness, effect, colour and speed.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Keyboard Light",
+    "description": "Brightness, effect (static, breathe, rainbow, pulse), colour and speed for the ASUS keyboard backlight.",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "scrollToAdjust": true,
+      "hideWhenUnsupported": true,
+      "speed": "Med"
+    },
+    "schema": [
+      {
+        "key": "scrollToAdjust",
+        "type": "boolean",
+        "label": "Scroll to change brightness",
+        "description": "Scroll the bar icon to step the backlight up and down without opening the panel.",
+        "defaultValue": true
+      },
+      {
+        "key": "hideWhenUnsupported",
+        "type": "boolean",
+        "label": "Hide on unsupported hardware",
+        "description": "Conceal the widget when no keyboard backlight device is present.",
+        "defaultValue": true
+      },
+      {
+        "key": "speed",
+        "type": "enum",
+        "label": "Animation speed",
+        "description": "Speed for the breathe and rainbow effects. Kept here because asusd does not persist it.",
+        "options": [
+          "Low",
+          "Med",
+          "High"
+        ],
+        "defaultValue": "Med"
+      }
+    ]
+  }
+}
