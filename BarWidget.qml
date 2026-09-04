@@ -28,14 +28,89 @@ Panel {
   implicitHeight: button.implicitHeight
 
   readonly property string ledDir: "/sys/class/leds/asus::kbd_backlight"
-  // asusd names its Aura config after the hardware it detected — aura_tuf.ron
-  // here, aura_laptop.ron on other ASUS models — and the anime/slash variants
-  // in the same directory drive auxiliary displays, not the keyboard. Discover
-  // it rather than assume, so colour and effects are not silently dead on a
-  // machine that is not the one this was written on. Empty until the probe
-  // answers; the widget runs brightness-only until then.
-  property string auraConfigPath: ""
   readonly property string themeColourPath: Quickshell.env("HOME") + "/.local/state/omarchy/current/theme/keyboard.rgb"
+
+  // ------------------------------------------------------- external commands
+  //
+  // Three programs are run, and each is named by its absolute path in a
+  // root-owned system directory rather than by a bare name off `PATH`. A bar
+  // widget inherits the shell's environment, and the shell inherits the
+  // session's; a `PATH` entry earlier than /usr/bin is all it would take for
+  // "brightnessctl" to mean something else entirely. A full path cannot be
+  // redirected that way.
+  //
+  // None of them is privileged: brightnessctl reaches the LED through logind,
+  // asusctl talks to asusd over D-Bus with polkit, and omarchy-osd is
+  // Omarchy's own on-screen display. Nothing here uses sudo, pkexec or a
+  // helper, and nothing is run through a shell — the arguments go straight to
+  // execve, so there is no string for a colour or a level to be quoted into.
+
+  readonly property string brightnessctlBin: "/usr/bin/brightnessctl"
+  readonly property string asusctlBin: "/usr/bin/asusctl"
+  readonly property string osdBin: "/usr/bin/omarchy-osd"
+
+  // Built, not inherited. `PATH` is pinned to the system directories, and the
+  // rest is the short list these three actually need to find the session:
+  // omarchy-osd shells out to jq and omarchy-shell, and both asusctl and
+  // brightnessctl need the bus to talk to asusd and logind.
+  readonly property var commandEnvironment: {
+    var env = { "PATH": "/usr/bin:/bin" }
+    var keys = ["HOME", "USER", "LOGNAME", "XDG_RUNTIME_DIR", "XDG_SESSION_ID",
+                "XDG_SESSION_TYPE", "XDG_CURRENT_DESKTOP", "WAYLAND_DISPLAY",
+                "DBUS_SESSION_BUS_ADDRESS"]
+    for (var i = 0; i < keys.length; i++) {
+      var value = Quickshell.env(keys[i])
+      if (value === undefined || value === null)
+        continue
+      var text = String(value)
+      if (text.length > 0)
+        env[keys[i]] = text
+    }
+    return env
+  }
+
+  function runTrusted(argv) {
+    Quickshell.execDetached({
+      command: argv,
+      clearEnvironment: true,
+      environment: root.commandEnvironment,
+      workingDirectory: "/"
+    })
+  }
+
+  // ------------------------------------------------------------- input bounds
+  //
+  // Every file read here belongs to something else — the kernel, asusd, the
+  // theme — so each one is capped before it is looked at. The real files are
+  // tens of bytes and a couple of kilobytes; anything past these ceilings is
+  // not the file this expects and is ignored rather than parsed.
+  readonly property int maxSysfsBytes: 64
+  readonly property int maxAuraBytes: 131072
+  readonly property int maxThemeBytes: 64
+  // The longest RON block this walks. asusd's are a few hundred bytes; the cap
+  // stops an unbalanced parenthesis from turning the walk into a scan of the
+  // whole file.
+  readonly property int maxAuraBlockBytes: 8192
+
+  // asusd names its Aura config after the hardware it detected — aura_tuf.ron
+  // here, aura_laptop.ron on other ASUS models — so the known keyboard configs
+  // are tried in order until one loads. A fixed list rather than a glob: the
+  // anime and slash files in the same directory drive auxiliary displays
+  // rather than the keyboard, and expanding a wildcard would mean a shell —
+  // a whole subprocess, with its inherited environment and its lifetime to
+  // manage, bought for the sake of four filenames. Every path here is a
+  // literal, so there is nothing to traverse and nothing to point elsewhere.
+  readonly property var auraCandidates: [
+    "/etc/asusd/aura_tuf.ron",
+    "/etc/asusd/aura_laptop.ron",
+    "/etc/asusd/aura_scsi.ron",
+    "/etc/asusd/aura_ally.ron"
+  ]
+  // Index into the list while the chain is walking it, or the one that
+  // answered; -1 when nothing did. Empty path until then, and the widget runs
+  // brightness-only.
+  property int auraCandidate: -1
+  property string auraConfigPath: ""
 
   property int brightness: 0
   property int maxBrightness: 3
@@ -134,9 +209,9 @@ Panel {
       lastLitBrightness = brightness
     brightness = next
     suppressSyncUntil = Date.now() + 1200
-    Quickshell.execDetached(["brightnessctl", "-d", "asus::kbd_backlight", "set", String(next)])
+    runTrusted([brightnessctlBin, "-d", "asus::kbd_backlight", "set", String(next)])
     if (showOsd)
-      Quickshell.execDetached(["omarchy-osd", "-i", "keyboard", "-p", String(brightnessPercent())])
+      runTrusted([osdBin, "-i", "keyboard", "-p", String(brightnessPercent())])
     return next
   }
 
@@ -152,7 +227,7 @@ Panel {
   function applyEffect() {
     if (!auraPresent)
       return
-    var args = ["asusctl", "aura", "effect"]
+    var args = [asusctlBin, "aura", "effect"]
     if (mode === "Static")
       args = args.concat(["static", "-c", colour])
     else if (mode === "Pulse")
@@ -164,7 +239,7 @@ Panel {
     else
       return
     suppressSyncUntil = Date.now() + 1200
-    Quickshell.execDetached(args)
+    runTrusted(args)
   }
 
   function setMode(next) {
@@ -240,7 +315,10 @@ Panel {
       var start = hit.index + hit[0].length
       var depth = 1
       var end = start
-      while (end < text.length && depth > 0) {
+      // Bounded by the block ceiling as well as by the text: an unbalanced
+      // parenthesis must cost one short scan, not a walk to the end.
+      var stop = Math.min(text.length, start + root.maxAuraBlockBytes)
+      while (end < stop && depth > 0) {
         var ch = text.charAt(end)
         if (ch === "(")
           depth++
@@ -248,6 +326,8 @@ Panel {
           depth--
         end++
       }
+      if (depth > 0)
+        continue
       var block = text.substring(start, end)
       var storedSpeed = /speed:\s*([A-Za-z]+)/.exec(block)
       parsed.modes[names[i]] = {
@@ -262,6 +342,13 @@ Panel {
   function loadAura(text) {
     if (!text || text.trim() === "")
       return
+    // asusd's own file is under two kilobytes. Anything past the ceiling is
+    // not it, and is not walked with regexes to find out.
+    if (text.length > root.maxAuraBytes) {
+      console.warn("keyboard-light: " + root.auraConfigPath + " is larger than "
+        + Math.round(root.maxAuraBytes / 1024) + " KiB, ignoring it")
+      return
+    }
     auraState = parseAura(text)
     auraPresent = true
     // Keep the parsed per-mode colours either way: switching modes needs them
@@ -295,27 +382,31 @@ Panel {
     }
   }
 
-  Process {
-    id: auraPathProc
-    command: ["sh", "-c",
-      "for f in /etc/asusd/aura_tuf.ron /etc/asusd/aura_laptop.ron /etc/asusd/aura_scsi.ron; do "
-      + "[ -f $f ] && { printf %s $f; exit 0; }; done; "
-      + "ls -1 /etc/asusd/aura_*.ron 2>/dev/null | grep -vE 'aura_(anime|slash|support)[.]ron$' | head -1"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        var found = String(text || "").trim()
-        if (found === "" || found === root.auraConfigPath)
-          return
-        root.auraConfigPath = found
-        auraFile.reload()
-      }
-    }
+  // Walking the candidate list is the whole of the discovery: point the view
+  // at the first one, and let each failure move it to the next. No process, so
+  // nothing to give an environment to, nothing to put a deadline on and
+  // nothing left running when the widget goes away.
+  function discoverAuraConfig() {
+    root.auraCandidate = 0
+    if (root.auraConfigPath === root.auraCandidates[0])
+      auraFile.reload()
+    else
+      root.auraConfigPath = root.auraCandidates[0]
   }
 
-  function discoverAuraConfig() {
-    if (!auraPathProc.running)
-      auraPathProc.running = true
+  function nextAuraCandidate() {
+    if (root.auraCandidate < 0)
+      return
+    var next = root.auraCandidate + 1
+    if (next >= root.auraCandidates.length) {
+      // Nothing on this machine: brightness-only, and the panel says so.
+      root.auraCandidate = -1
+      root.auraConfigPath = ""
+      root.auraPresent = false
+      return
+    }
+    root.auraCandidate = next
+    root.auraConfigPath = root.auraCandidates[next]
   }
 
   FileView {
@@ -324,7 +415,10 @@ Panel {
     watchChanges: false
     printErrors: false
     onLoaded: {
-      var value = parseInt(String(text() || "").trim(), 10)
+      var raw = String(text() || "")
+      if (raw.length > root.maxSysfsBytes)
+        return
+      var value = parseInt(raw.trim(), 10)
       if (isFinite(value) && value > 0) {
         root.maxBrightness = value
         root.ledPresent = true
@@ -342,7 +436,10 @@ Panel {
     watchChanges: false
     printErrors: false
     onLoaded: {
-      var value = parseInt(String(text() || "").trim(), 10)
+      var raw = String(text() || "")
+      if (raw.length > root.maxSysfsBytes)
+        return
+      var value = parseInt(raw.trim(), 10)
       if (!isFinite(value))
         return
       root.ledPresent = true
@@ -363,6 +460,10 @@ Panel {
     watchChanges: false
     printErrors: false
     onLoaded: root.loadAura(String(text() || ""))
+    // A candidate that is not there, or not readable, is the ordinary case on
+    // every machine but one — move to the next rather than treat it as an
+    // error.
+    onLoadFailed: root.nextAuraCandidate()
   }
 
   FileView {
@@ -371,7 +472,12 @@ Panel {
     watchChanges: true
     printErrors: false
     onLoaded: {
-      var value = String(text() || "").trim().replace(/^#/, "")
+      var raw = String(text() || "")
+      if (raw.length > root.maxThemeBytes) {
+        root.themeColour = ""
+        return
+      }
+      var value = raw.trim().replace(/^#/, "")
       root.themeColour = /^[0-9A-Fa-f]{6}$/.test(value) ? value.toLowerCase() : ""
     }
   }

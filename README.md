@@ -132,13 +132,41 @@ reading it back would snap the control to Medium after every change.
 `asusd` names its Aura config after the hardware it detected: `aura_tuf.ron`
 on a TUF, `aura_laptop.ron` elsewhere, plus `aura_anime.ron` / `aura_slash.ron`
 variants that drive auxiliary displays rather than the keyboard. The widget
-probes for the right one at startup instead of assuming a filename, and
-re-probes when the panel opens, so it also works if `asusd` starts after the
-shell.
+tries the keyboard-bearing names in order — `aura_tuf.ron`, `aura_laptop.ron`,
+`aura_scsi.ron`, `aura_ally.ron` — and keeps the first that opens. It starts the
+walk again when the panel opens, so it also works if `asusd` starts after the
+shell. Every path is a literal in the source: nothing is globbed, and no shell
+runs to expand a wildcard. On hardware whose config is named something else,
+colour and effects stay hidden and brightness still works; that is worth an
+issue, with the output of `ls /etc/asusd/`.
+
+Both files are capped before they are read: 64 bytes for the sysfs attributes
+and the theme colour, 128 KiB for the Aura config — the real ones are a handful
+of bytes and under two kilobytes. Anything larger is not the file the widget
+expects and is ignored rather than parsed.
 
 That config is RON. Rather than pull in a parser, the widget walks the
 parentheses of each effect block and picks the fields out with regexes — the
-shapes involved are fixed and shallow.
+shapes involved are fixed and shallow. The walk stops after 8 KiB, so an
+unbalanced parenthesis costs one short scan rather than a pass over the file.
+
+## How it runs commands
+
+Three programs are run, each by its absolute path — `/usr/bin/brightnessctl`,
+`/usr/bin/asusctl`, `/usr/bin/omarchy-osd` — rather than by a bare name off
+`PATH`. A bar widget inherits the shell's environment, and one `PATH` entry
+ahead of `/usr/bin` would be enough for a bare name to mean something else.
+
+The environment they get is built rather than inherited: `PATH` pinned to
+`/usr/bin:/bin`, plus `HOME`, `USER`, `LOGNAME`, `XDG_RUNTIME_DIR`,
+`XDG_SESSION_ID`, `XDG_SESSION_TYPE`, `XDG_CURRENT_DESKTOP`, `WAYLAND_DISPLAY`
+and `DBUS_SESSION_BUS_ADDRESS` — what these three need to find the session bus
+and the running shell, and nothing else.
+
+Arguments go straight to `execve`; no shell is involved, so there is no string
+for a colour or a brightness level to be quoted into. Nothing is run with
+elevated rights and no privileged helper is installed: `brightnessctl` reaches
+the LED through logind, and `asusctl` talks to `asusd` over D-Bus with polkit.
 
 Neither sysfs LED attributes nor `asusd`'s config deliver usable inotify events
 (`asusd` rewrites atomically, replacing the inode), so both are polled: every

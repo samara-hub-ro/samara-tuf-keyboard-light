@@ -9,6 +9,47 @@ for each release.
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-09-04
+
+Security hardening, from the marketplace review of 1.0.0. The panel does the
+same things; how it reaches the programs behind them, and what it is willing to
+read, is what changed.
+
+### Changed
+
+- **Every command is bound to an absolute path** — `/usr/bin/brightnessctl`,
+  `/usr/bin/asusctl`, `/usr/bin/omarchy-osd` — instead of a bare name resolved
+  through `PATH`. A bar widget inherits the shell's environment, and a single
+  `PATH` entry ahead of `/usr/bin` would be enough for a bare name to mean
+  something else entirely.
+
+- **The environment is built, not inherited.** `PATH` is pinned to
+  `/usr/bin:/bin` and only the variables these three need to find the session
+  are passed through: `HOME`, `USER`, `LOGNAME`, `XDG_RUNTIME_DIR`,
+  `XDG_SESSION_ID`, `XDG_SESSION_TYPE`, `XDG_CURRENT_DESKTOP`,
+  `WAYLAND_DISPLAY`, `DBUS_SESSION_BUS_ADDRESS`.
+
+- **The Aura config is found without a shell.** The `sh -c` probe that globbed
+  `/etc/asusd/aura_*.ron` through `ls | grep | head` is gone. The known
+  keyboard configs are tried in order instead — `aura_tuf.ron`,
+  `aura_laptop.ron`, `aura_scsi.ron`, `aura_ally.ron` — each one a literal in
+  the source, the first that opens winning and the rest never touched. That
+  removes an inherited environment, an unbounded read of a subprocess's output,
+  and a process with no deadline that nothing cleaned up if the widget went
+  away mid-probe.
+
+  Hardware whose config is named something outside that list now shows
+  brightness only, where the glob would have found it. Worth an issue if it is
+  yours, with the output of `ls /etc/asusd/`.
+
+### Added
+
+- **Ceilings on every file read**, checked before anything is parsed: 64 bytes
+  for the sysfs LED attributes and for the theme's `keyboard.rgb`, 128 KiB for
+  the Aura config, and 8 KiB for the longest RON block the parser will walk —
+  so an unbalanced parenthesis costs one short scan rather than a pass over the
+  whole file. The real files are a handful of bytes and under two kilobytes.
+
 ## [1.0.0] — 2026-09-02
 
 First public release.
@@ -53,5 +94,6 @@ First public release.
   `hideWhenUnsupported` left on, the widget hides itself — harmless in a shared
   config.
 
-[Unreleased]: https://github.com/samara-hub-ro/samara-tuf-keyboard-light/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/samara-hub-ro/samara-tuf-keyboard-light/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/samara-hub-ro/samara-tuf-keyboard-light/releases/tag/v1.1.0
 [1.0.0]: https://github.com/samara-hub-ro/samara-tuf-keyboard-light/releases/tag/v1.0.0
