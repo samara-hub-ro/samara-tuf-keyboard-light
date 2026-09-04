@@ -9,6 +9,37 @@ for each release.
 
 ## [Unreleased]
 
+## [1.2.0] — 2026-09-04
+
+The second round of the marketplace security review: the ceilings 1.1.0 added
+were checked after `FileView` had already opened the path and read all of it,
+which is not a boundary against a file that is not what it should be.
+
+### Added
+
+- **`BoundedFile.qml`, a producer-side bounded read**, now used for the Aura
+  config and for the theme's `keyboard.rgb`. `stat` first — `lstat`, so a
+  symlink reports as `symbolic link` and a FIFO as `fifo` — refusing anything
+  that is not a regular file, any owner other than the expected one (`root` for
+  `/etc/asusd`, the running user for `keyboard.rgb`), and any size already over
+  the limit. Then `dd` with `iflag=nofollow,nonblock bs=<limit+1> count=1`:
+  `O_NOFOLLOW` refuses a symlink at open time, `O_NONBLOCK` makes a FIFO return
+  `EAGAIN` rather than block, and exactly one read of at most `limit+1` bytes
+  can arrive — so a file that grew past the limit between the two calls is
+  rejected on what actually turned up rather than on a stale size.
+
+  Both run under `timeout` with a kill-after, with a built environment and no
+  shell, and both are stopped by a watchdog and on destruction.
+
+### Changed
+
+- **The theme colour is read when the panel opens** instead of being watched. It
+  only feeds a swatch that is on screen while the panel is open, and the watch
+  was a second unbounded reader.
+- **The Aura config is polled every two seconds** while the panel is open rather
+  than every second: the read now costs two short-lived processes. Brightness is
+  still read every second — that one is a kernel file and stays on `FileView`.
+
 ## [1.1.0] — 2026-09-04
 
 Security hardening, from the marketplace review of 1.0.0. The panel does the
@@ -94,6 +125,7 @@ First public release.
   `hideWhenUnsupported` left on, the widget hides itself — harmless in a shared
   config.
 
-[Unreleased]: https://github.com/samara-hub-ro/samara-tuf-keyboard-light/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/samara-hub-ro/samara-tuf-keyboard-light/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/samara-hub-ro/samara-tuf-keyboard-light/releases/tag/v1.2.0
 [1.1.0]: https://github.com/samara-hub-ro/samara-tuf-keyboard-light/releases/tag/v1.1.0
 [1.0.0]: https://github.com/samara-hub-ro/samara-tuf-keyboard-light/releases/tag/v1.0.0

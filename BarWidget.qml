@@ -409,6 +409,11 @@ Panel {
     root.auraConfigPath = root.auraCandidates[next]
   }
 
+  // The two sysfs attributes stay on FileView. They are kernel-backed files at
+  // a fixed literal path in a root-owned virtual filesystem: there is no
+  // symlink to follow, nothing an unprivileged process can put a FIFO in front
+  // of, and no size to speak of. The length check below is against a kernel
+  // that has changed shape, not against an attacker.
   FileView {
     id: maxFile
     path: root.ledDir + "/max_brightness"
@@ -454,32 +459,37 @@ Panel {
   // asusd rewrites this file atomically (write + rename), which replaces the
   // inode and slips past an inotify watch on the path, so it is polled below
   // rather than watched.
-  FileView {
+  // asusd's config is root's, and it is read through the bounded reader rather
+  // than a FileView: a FileView opens the path and materialises whatever is
+  // there before any check can run, which is no boundary against a file that
+  // is not what it should be.
+  BoundedFile {
     id: auraFile
     path: root.auraConfigPath
-    watchChanges: false
-    printErrors: false
-    onLoaded: root.loadAura(String(text() || ""))
-    // A candidate that is not there, or not readable, is the ordinary case on
-    // every machine but one — move to the next rather than treat it as an
-    // error.
-    onLoadFailed: root.nextAuraCandidate()
+    limit: root.maxAuraBytes
+    allowedOwners: ["root"]
+    printErrors: true
+    onLoaded: function(text) { root.loadAura(text) }
+    // A candidate that is not there, or is not a plain root-owned file, is the
+    // ordinary case on every machine but one — move to the next rather than
+    // treat it as an error.
+    onFailed: root.nextAuraCandidate()
   }
 
-  FileView {
+  // The theme's keyboard colour is the one file here that lives under $HOME
+  // and is writable without root, so it is the one that most needs a boundary
+  // rather than a length check after the fact. Read when the panel opens,
+  // which is the only time the swatch it feeds is on screen — that is also why
+  // dropping the file watch costs nothing.
+  BoundedFile {
     id: themeFile
     path: root.themeColourPath
-    watchChanges: true
-    printErrors: false
-    onLoaded: {
-      var raw = String(text() || "")
-      if (raw.length > root.maxThemeBytes) {
-        root.themeColour = ""
-        return
-      }
-      var value = raw.trim().replace(/^#/, "")
+    limit: root.maxThemeBytes
+    onLoaded: function(text) {
+      var value = text.trim().replace(/^#/, "")
       root.themeColour = /^[0-9A-Fa-f]{6}$/.test(value) ? value.toLowerCase() : ""
     }
+    onFailed: root.themeColour = ""
   }
 
   // Everything here can also be changed from outside — the Fn keys,
@@ -492,9 +502,15 @@ Panel {
     interval: root.opened ? 1000 : 5000
     running: root.ledPresent
     repeat: true
+    // The LED attribute is a cheap read of a kernel file; the Aura config now
+    // costs two short-lived processes, so it is polled at half the rate and
+    // only while something is looking at it. `reload` is a no-op while a read
+    // is still in flight, so a slow one cannot pile up behind itself.
+    property int tick: 0
     onTriggered: {
       brightnessFile.reload()
-      if (root.opened && root.auraConfigPath !== "")
+      tick = (tick + 1) % 2
+      if (tick === 0 && root.opened && root.auraConfigPath !== "")
         auraFile.reload()
     }
   }

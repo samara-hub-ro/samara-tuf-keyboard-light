@@ -140,10 +140,37 @@ runs to expand a wildcard. On hardware whose config is named something else,
 colour and effects stay hidden and brightness still works; that is worth an
 issue, with the output of `ls /etc/asusd/`.
 
-Both files are capped before they are read: 64 bytes for the sysfs attributes
-and the theme colour, 128 KiB for the Aura config — the real ones are a handful
-of bytes and under two kilobytes. Anything larger is not the file the widget
-expects and is ignored rather than parsed.
+### The bounded reader
+
+The Aura config and the theme colour are read through `BoundedFile.qml` rather
+than through `FileView`, because `FileView` opens the path and materialises all
+of it before QML sees a byte — so a length check on the result is not a
+boundary. A FIFO left in place of the file blocks the read; an oversized file is
+already in memory before anything can reject it. QML has no syscall surface to
+fix that, so the boundary is produced by two short-lived commands:
+
+1. `stat -c '%F|%U|%s'` — `lstat`, so a symlink reports as `symbolic link` and a
+   FIFO as `fifo`. Anything that is not a regular file is refused, as is an
+   unexpected owner (`root` for `/etc/asusd`, you for `keyboard.rgb`) and a size
+   already over the limit.
+2. `dd if=<path> iflag=nofollow,nonblock bs=<limit+1> count=1` — `O_NOFOLLOW`
+   refuses a symlink at open time, `O_NONBLOCK` makes a FIFO return `EAGAIN`
+   instead of blocking, and one read of at most `limit+1` bytes is all that can
+   arrive. A file that grew past the limit between the two calls comes back one
+   byte too long and is rejected on that.
+
+Both run under `timeout`, with `PATH` pinned and no shell, and both are killed
+by a watchdog and when the widget goes away. The limits are 128 KiB for the Aura
+config and 64 bytes for `keyboard.rgb`.
+
+The two sysfs attributes stay on `FileView`: they are kernel-backed files at a
+fixed path in a root-owned virtual filesystem, where there is no symlink to
+follow and nothing an unprivileged process can put a FIFO in front of. Their
+64-byte check guards against a kernel that has changed shape, not against an
+attacker.
+
+Because the theme colour is read when the panel opens rather than watched, a
+theme change shows up the next time you open the panel.
 
 That config is RON. Rather than pull in a parser, the widget walks the
 parentheses of each effect block and picks the fields out with regexes — the
