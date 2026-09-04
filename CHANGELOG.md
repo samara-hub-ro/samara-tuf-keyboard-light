@@ -9,6 +9,16 @@ for each release.
 
 ## [Unreleased]
 
+## [1.2.1] — 2026-09-04
+
+### Fixed
+
+- **A missing file no longer writes a warning.** The Aura config is found by
+  trying four candidates in order, so three of them are absent on any machine
+  by design; logging each one turned an ordinary search into four lines of
+  noise at every discovery. The reasons that mean something — a type, an owner,
+  a size, a deadline — are still printed.
+
 ## [1.2.0] — 2026-09-04
 
 The second round of the marketplace security review: the ceilings 1.1.0 added
@@ -125,7 +135,8 @@ First public release.
   `hideWhenUnsupported` left on, the widget hides itself — harmless in a shared
   config.
 
-[Unreleased]: https://github.com/samara-hub-ro/samara-tuf-keyboard-light/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/samara-hub-ro/samara-tuf-keyboard-light/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/samara-hub-ro/samara-tuf-keyboard-light/releases/tag/v1.2.1
 [1.2.0]: https://github.com/samara-hub-ro/samara-tuf-keyboard-light/releases/tag/v1.2.0
 [1.1.0]: https://github.com/samara-hub-ro/samara-tuf-keyboard-light/releases/tag/v1.1.0
 [1.0.0]: https://github.com/samara-hub-ro/samara-tuf-keyboard-light/releases/tag/v1.0.0

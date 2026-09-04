@@ -97,7 +97,12 @@ Item {
 
   function report(reason) {
     watchdog.stop()
-    if (reader.printErrors)
+    // "missing" is not worth a line: it is the first-run state, it is every
+    // candidate in a search but one, and it is the half-second in which
+    // somebody else's non-atomic rewrite has the file unlinked. The reasons
+    // that mean something — a type, an owner, a size, a deadline — are the
+    // ones printed.
+    if (reader.printErrors && reason !== "missing")
       console.warn("bounded-read: " + reader.activePath + ": " + reason)
     reader.failed(reason)
   }
