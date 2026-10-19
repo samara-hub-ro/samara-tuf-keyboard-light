@@ -133,11 +133,17 @@ reading it back would snap the control to Medium after every change.
 on a TUF, `aura_laptop.ron` elsewhere, plus `aura_anime.ron` / `aura_slash.ron`
 variants that drive auxiliary displays rather than the keyboard. The widget
 tries the keyboard-bearing names in order — `aura_tuf.ron`, `aura_laptop.ron`,
-`aura_scsi.ron`, `aura_ally.ron` — and keeps the first that opens. It starts the
-walk again when the panel opens, so it also works if `asusd` starts after the
-shell. Every path is a literal in the source: nothing is globbed, and no shell
-runs to expand a wildcard. On hardware whose config is named something else,
-colour and effects stay hidden and brightness still works; that is worth an
+`aura_scsi.ron`, `aura_ally.ron` — then any other `aura_<id>.ron` in the
+directory (newer `asusd` names it after the USB product ID, e.g.
+`aura_19b6.ron` on a Zephyrus G14), and keeps the first that opens. The
+directory is listed in-process, not through a shell, and the anime / slash /
+support files are never offered. It starts the walk again when the panel opens,
+so it also works if `asusd` starts after the shell. The effect buttons follow
+the `SupportedBasicModes` property that `asusd` publishes for the keyboard, read
+with `busctl` — a keyboard without a rainbow mode does not get a Rainbow
+button. If `asusd` does not answer, every effect is offered. If the config is
+named something else entirely, colour and effects stay hidden and brightness
+still works; that is worth an
 issue, with the output of `ls /etc/asusd/`.
 
 ### The bounded reader

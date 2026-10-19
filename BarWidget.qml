@@ -1,4 +1,5 @@
 import QtQuick
+import Qt.labs.folderlistmodel
 import Quickshell
 import Quickshell.Io
 import qs.Commons
@@ -32,14 +33,15 @@ Panel {
 
   // ------------------------------------------------------- external commands
   //
-  // Three programs are run, and each is named by its absolute path in a
+  // Four programs are run, and each is named by its absolute path in a
   // root-owned system directory rather than by a bare name off `PATH`. A bar
   // widget inherits the shell's environment, and the shell inherits the
   // session's; a `PATH` entry earlier than /usr/bin is all it would take for
   // "brightnessctl" to mean something else entirely. A full path cannot be
   // redirected that way.
   //
-  // None of them is privileged: brightnessctl reaches the LED through logind,
+  // None of them is privileged: busctl only reads a property from the system
+  // bus, brightnessctl reaches the LED through logind,
   // asusctl talks to asusd over D-Bus with polkit, and omarchy-osd is
   // Omarchy's own on-screen display. Nothing here uses sudo, pkexec or a
   // helper, and nothing is run through a shell — the arguments go straight to
@@ -48,6 +50,7 @@ Panel {
   readonly property string brightnessctlBin: "/usr/bin/brightnessctl"
   readonly property string asusctlBin: "/usr/bin/asusctl"
   readonly property string osdBin: "/usr/bin/omarchy-osd"
+  readonly property string busctlBin: "/usr/bin/busctl"
 
   // Built, not inherited. `PATH` is pinned to the system directories, and the
   // rest is the short list these three actually need to find the session:
@@ -93,19 +96,55 @@ Panel {
   readonly property int maxAuraBlockBytes: 8192
 
   // asusd names its Aura config after the hardware it detected — aura_tuf.ron
-  // here, aura_laptop.ron on other ASUS models — so the known keyboard configs
-  // are tried in order until one loads. A fixed list rather than a glob: the
-  // anime and slash files in the same directory drive auxiliary displays
-  // rather than the keyboard, and expanding a wildcard would mean a shell —
-  // a whole subprocess, with its inherited environment and its lifetime to
-  // manage, bought for the sake of four filenames. Every path here is a
-  // literal, so there is nothing to traverse and nothing to point elsewhere.
-  readonly property var auraCandidates: [
+  // here, aura_laptop.ron on other ASUS models, aura_<usb product id>.ron on
+  // newer asusd (aura_19b6.ron on a Zephyrus G14) — so the known keyboard
+  // configs are tried first, then whatever else the directory holds that is
+  // named like one, until one loads. The anime and slash files in the same
+  // directory drive auxiliary displays rather than the keyboard and are never
+  // offered. The directory is listed by a FolderListModel rather than by a
+  // shell glob: no subprocess, no environment, nothing left running. Names
+  // are held to a strict pattern before they become paths, and the file read
+  // still has to be a plain root-owned one.
+  readonly property var knownAuraCandidates: [
     "/etc/asusd/aura_tuf.ron",
     "/etc/asusd/aura_laptop.ron",
     "/etc/asusd/aura_scsi.ron",
     "/etc/asusd/aura_ally.ron"
   ]
+  property var auraCandidates: knownAuraCandidates
+
+  FolderListModel {
+    id: auraDir
+    folder: "file:///etc/asusd"
+    nameFilters: ["aura_*.ron"]
+    showDirs: false
+    showDotAndDotDot: false
+    sortField: FolderListModel.Name
+    onStatusChanged: root.refreshAuraCandidates()
+    onCountChanged: root.refreshAuraCandidates()
+  }
+
+  function refreshAuraCandidates() {
+    if (auraDir.status !== FolderListModel.Ready)
+      return
+    var list = root.knownAuraCandidates.slice()
+    for (var i = 0; i < auraDir.count; i++) {
+      var name = String(auraDir.get(i, "fileName"))
+      if (!/^aura_[A-Za-z0-9]{1,16}\.ron$/.test(name))
+        continue
+      if (/^aura_(anime|slash|support)\.ron$/.test(name))
+        continue
+      var path = "/etc/asusd/" + name
+      if (list.indexOf(path) < 0)
+        list.push(path)
+    }
+    if (JSON.stringify(list) === JSON.stringify(root.auraCandidates))
+      return
+    root.auraCandidates = list
+    // Something new turned up while the widget had nothing: look again.
+    if (root.auraConfigPath === "")
+      root.discoverAuraConfig()
+  }
   // Index into the list while the chain is walking it, or the one that
   // answered; -1 when nothing did. Empty path until then, and the widget runs
   // brightness-only.
@@ -150,12 +189,32 @@ Panel {
   readonly property bool modeUsesSecondColour: mode === "Breathe"
   readonly property bool modeUsesSpeed: mode === "Breathe" || mode === "RainbowCycle"
 
-  readonly property var effectOptions: [
+  // asusd's basic-mode numbers for the effects this panel offers.
+  readonly property var effectModeNumbers: ({ Static: 0, Breathe: 1, RainbowCycle: 2, Pulse: 10 })
+  // Mode numbers the keyboard reports as supported, or null until asusd has
+  // answered — then every effect is offered, as before. A keyboard without a
+  // rainbow (the G14's has Static, Breathe and Pulse only) answers
+  // NotSupported to it, so it must not be a button there.
+  property var supportedModes: null
+
+  readonly property var allEffectOptions: [
     { value: "Static", label: "Static" },
     { value: "Breathe", label: "Breathe" },
     { value: "RainbowCycle", label: "Rainbow" },
     { value: "Pulse", label: "Pulse" }
   ]
+  readonly property var effectOptions: {
+    var modes = root.supportedModes
+    if (!modes)
+      return root.allEffectOptions
+    var out = []
+    for (var i = 0; i < root.allEffectOptions.length; i++) {
+      var opt = root.allEffectOptions[i]
+      if (modes.indexOf(root.effectModeNumbers[opt.value]) >= 0 || opt.value === root.mode)
+        out.push(opt)
+    }
+    return out
+  }
 
   readonly property var speedOptions: [
     { value: "Low", label: "Slow" },
@@ -351,6 +410,8 @@ Panel {
     }
     auraState = parseAura(text)
     auraPresent = true
+    if (root.supportedModes === null)
+      root.queryAuraModes()
     // Keep the parsed per-mode colours either way: switching modes needs them
     // even while our own write is still settling.
     if (Date.now() < suppressSyncUntil)
@@ -403,10 +464,99 @@ Panel {
       root.auraCandidate = -1
       root.auraConfigPath = ""
       root.auraPresent = false
+      root.supportedModes = null
       return
     }
     root.auraCandidate = next
     root.auraConfigPath = root.auraCandidates[next]
+  }
+
+  // Which effects the keyboard really has. asusd publishes them as the
+  // SupportedBasicModes property of xyz.ljones.Aura on one object per Aura
+  // device, with a path that carries the hardware's name (/xyz/ljones/aura/tuf,
+  // /xyz/ljones/aura/19b6_4_4), so list the objects first, then ask each one.
+  // busctl is run by absolute path, with a built environment and no shell, and
+  // a deadline: if the daemon does not answer, every effect stays offered.
+  property var auraObjects: []
+  property var auraModesFound: []
+
+  function queryAuraModes() {
+    if (auraTreeProc.running || auraModeProc.running)
+      return
+    root.auraObjects = []
+    root.auraModesFound = []
+    auraTreeProc.running = true
+    modesDeadline.restart()
+  }
+
+  function askNextAuraObject() {
+    if (root.auraObjects.length === 0) {
+      modesDeadline.stop()
+      // Nothing answered: leave the list alone rather than hide everything.
+      if (root.auraModesFound.length > 0)
+        root.supportedModes = root.auraModesFound
+      return
+    }
+    auraModeProc.command = [root.busctlBin, "--system", "get-property",
+      "xyz.ljones.Asusd", root.auraObjects[0], "xyz.ljones.Aura", "SupportedBasicModes"]
+    root.auraObjects = root.auraObjects.slice(1)
+    auraModeProc.running = true
+  }
+
+  Timer {
+    id: modesDeadline
+    interval: 4000
+    onTriggered: {
+      auraTreeProc.running = false
+      auraModeProc.running = false
+      root.auraObjects = []
+    }
+  }
+
+  Process {
+    id: auraTreeProc
+    command: [root.busctlBin, "--system", "tree", "--list", "xyz.ljones.Asusd"]
+    clearEnvironment: true
+    environment: root.commandEnvironment
+    workingDirectory: "/"
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var found = []
+        var lines = String(text || "").split("\n")
+        for (var i = 0; i < lines.length && found.length < 8; i++) {
+          var line = lines[i].trim()
+          if (/^\/xyz\/ljones\/aura\/[A-Za-z0-9_]{1,32}$/.test(line))
+            found.push(line)
+        }
+        root.auraObjects = found
+        root.askNextAuraObject()
+      }
+    }
+  }
+
+  Process {
+    id: auraModeProc
+    clearEnvironment: true
+    environment: root.commandEnvironment
+    workingDirectory: "/"
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        // "au 4 0 1 2 10": a type, a count, then the mode numbers.
+        var parts = String(text || "").trim().split(/\s+/)
+        if (parts.length >= 2 && parts[0] === "au") {
+          var merged = root.auraModesFound.slice()
+          for (var i = 2; i < parts.length && i < 66; i++) {
+            var n = parseInt(parts[i], 10)
+            if (isFinite(n) && merged.indexOf(n) < 0)
+              merged.push(n)
+          }
+          root.auraModesFound = merged
+        }
+        root.askNextAuraObject()
+      }
+    }
   }
 
   // The two sysfs attributes stay on FileView. They are kernel-backed files at

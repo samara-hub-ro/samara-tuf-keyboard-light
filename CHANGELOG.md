@@ -9,6 +9,19 @@ for each release.
 
 ## [Unreleased]
 
+## [1.3.0] — 2026-10-19
+
+### Fixed
+
+- Colour, effect and speed were hidden on keyboards whose `asusd` config is
+  named after the USB product ID (`aura_19b6.ron` on the ROG Zephyrus G14).
+  Besides the known names, the widget now tries any other `aura_<id>.ron` in
+  `/etc/asusd`, listed in-process (no shell), skipping the anime / slash /
+  support files. Reported in #1.
+- The Rainbow button errored on keyboards that do not support it. Effects are
+  now filtered by the `SupportedBasicModes` property of `xyz.ljones.Aura`,
+  read with `busctl`; all effects stay offered if `asusd` does not answer.
+
 ## [1.2.1] — 2026-09-04
 
 ### Fixed
@@ -135,7 +148,8 @@ First public release.
   `hideWhenUnsupported` left on, the widget hides itself — harmless in a shared
   config.
 
-[Unreleased]: https://github.com/samara-hub-ro/samara-tuf-keyboard-light/compare/v1.2.1...HEAD
+[Unreleased]: https://github.com/samara-hub-ro/samara-tuf-keyboard-light/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/samara-hub-ro/samara-tuf-keyboard-light/releases/tag/v1.3.0
 [1.2.1]: https://github.com/samara-hub-ro/samara-tuf-keyboard-light/releases/tag/v1.2.1
 [1.2.0]: https://github.com/samara-hub-ro/samara-tuf-keyboard-light/releases/tag/v1.2.0
 [1.1.0]: https://github.com/samara-hub-ro/samara-tuf-keyboard-light/releases/tag/v1.1.0
